@@ -1,8 +1,10 @@
 package com.example.imagemarker
 
+import android.Manifest
 import android.app.Activity
 import android.content.ContentValues
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -14,10 +16,10 @@ import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import java.io.IOException
 
 class MainActivity : AppCompatActivity() {
@@ -49,6 +51,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            loadLatestImage()
+        } else {
+            showToast(R.string.permission_denied)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -68,8 +80,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupListeners() {
         btnOpen.setOnClickListener {
-            val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-            pickImageLauncher.launch(intent)
+            checkPermissionAndLoadImage()
         }
 
         btnUndo.setOnClickListener {
@@ -96,6 +107,48 @@ class MainActivity : AppCompatActivity() {
         btnSave.setOnClickListener {
             saveImage()
         }
+    }
+
+    private fun checkPermissionAndLoadImage() {
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_IMAGES
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+
+        when {
+            ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED -> {
+                loadLatestImage()
+            }
+            else -> {
+                requestPermissionLauncher.launch(permission)
+            }
+        }
+    }
+
+    private fun loadLatestImage() {
+        val projection = arrayOf(MediaStore.Images.Media._ID)
+        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+
+        contentResolver.query(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            null,
+            null,
+            sortOrder
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val id = cursor.getLong(idColumn)
+                val uri = Uri.withAppendedPath(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    id.toString()
+                )
+                loadImage(uri)
+            } else {
+                showToast(R.string.no_image_found)
+            }
+        } ?: showToast(R.string.no_image_found)
     }
 
     private fun loadImage(uri: Uri) {
