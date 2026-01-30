@@ -67,6 +67,9 @@ class MainActivity : AppCompatActivity() {
 
         initViews()
         setupListeners()
+
+        // 应用启动时自动加载最近的一张照片
+        checkPermissionAndLoadImage()
     }
 
     private fun initViews() {
