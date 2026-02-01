@@ -236,14 +236,33 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun getOriginalImageRelativePath(): String? {
+        val uri = originalImageUri ?: return null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val projection = arrayOf(MediaStore.Images.Media.RELATIVE_PATH)
+            contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val pathIndex = cursor.getColumnIndex(MediaStore.Images.Media.RELATIVE_PATH)
+                    if (pathIndex >= 0) {
+                        return cursor.getString(pathIndex)
+                    }
+                }
+            }
+        }
+        return null
+    }
+
     private fun saveBitmapToGallery(bitmap: Bitmap): Uri? {
         val filename = "IMG_ANNOTATED_${System.currentTimeMillis()}.png"
+
+        // 获取原图片的目录路径，如果获取不到则使用默认的 Pictures 目录
+        val relativePath = getOriginalImageRelativePath() ?: Environment.DIRECTORY_PICTURES
 
         val contentValues = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, filename)
             put(MediaStore.Images.Media.MIME_TYPE, "image/png")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES)
+                put(MediaStore.Images.Media.RELATIVE_PATH, relativePath)
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
         }
