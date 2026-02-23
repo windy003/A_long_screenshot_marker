@@ -32,6 +32,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSave: Button
 
     private var originalImageUri: Uri? = null
+    // Android 11+ 的系统删除对话框会触发 onResume，用此标志跳过那次自动加载
+    private var skipNextAutoLoad = false
 
     private val pickImageLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -67,9 +69,18 @@ class MainActivity : AppCompatActivity() {
 
         initViews()
         setupListeners()
+    }
 
-        // 应用启动时自动加载最近的一张照片
-        checkPermissionAndLoadImage()
+    override fun onResume() {
+        super.onResume()
+        if (skipNextAutoLoad) {
+            skipNextAutoLoad = false
+            return
+        }
+        // 没有图片时（初次打开 / 保存后 / 切换回来），自动加载最近的一张
+        if (!drawingView.hasImage()) {
+            checkPermissionAndLoadImage()
+        }
     }
 
     private fun initViews() {
@@ -203,8 +214,10 @@ class MainActivity : AppCompatActivity() {
             showToast(R.string.save_success)
             // 请求删除原图片
             val oldUri = originalImageUri
-            // 先更新为新图片的 URI，这样下次保存时可以删除这张
-            originalImageUri = newUri
+            // 清除主界面图片，显示提示文字
+            drawingView.clearImage()
+            originalImageUri = null
+            tvHint.visibility = View.VISIBLE
             // 删除旧图片
             oldUri?.let { requestDeleteOriginal(it) }
         } else {
@@ -221,6 +234,7 @@ class MainActivity : AppCompatActivity() {
                     listOf(uri)
                 )
                 val intentSenderRequest = IntentSenderRequest.Builder(deleteRequest.intentSender).build()
+                skipNextAutoLoad = true
                 deleteLauncher.launch(intentSenderRequest)
             } catch (e: Exception) {
                 e.printStackTrace()

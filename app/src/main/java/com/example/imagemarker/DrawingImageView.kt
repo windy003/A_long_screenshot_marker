@@ -300,6 +300,13 @@ class DrawingImageView @JvmOverloads constructor(
         invalidate()
     }
 
+    fun clearImage() {
+        bitmap = null
+        paths.clear()
+        currentPath = null
+        invalidate()
+    }
+
     fun getAnnotatedBitmap(): Bitmap? {
         bitmap?.let { original ->
             val result = Bitmap.createBitmap(original.width, original.height, Bitmap.Config.ARGB_8888)
