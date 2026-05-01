@@ -16,7 +16,7 @@ class DrawingImageView @JvmOverloads constructor(
     private val imageMatrix = Matrix()
     private val inverseMatrix = Matrix()
 
-    // Drawing
+    // 绘制相关
     private val paths = mutableListOf<Path>()
     private var currentPath: Path? = null
 
@@ -34,15 +34,15 @@ class DrawingImageView @JvmOverloads constructor(
         isAntiAlias = true
     }
 
-    // Gesture handling
+    // 手势处理
     private var touchMode = TouchMode.NONE
     private var lastTouchX = 0f
     private var lastTouchY = 0f
 
-    // Scale factor (固定，不再支持缩放)
+    // 缩放因子（固定，不再支持缩放）
     private var scaleFactor = 1f
 
-    // Translation
+    // 平移
     private var translateX = 0f
     private var translateY = 0f
 
@@ -113,7 +113,7 @@ class DrawingImageView @JvmOverloads constructor(
             val bmpWidth = bmp.width.toFloat()
             val bmpHeight = bmp.height.toFloat()
 
-            // Fit image to view width (固定缩放比例)
+            // 将图片适配到视图宽度（固定缩放比例）
             scaleFactor = viewWidth / bmpWidth
 
             translateX = 0f
@@ -146,12 +146,12 @@ class DrawingImageView @JvmOverloads constructor(
             canvas.concat(imageMatrix)
             canvas.drawBitmap(bmp, 0f, 0f, bitmapPaint)
 
-            // Draw all saved paths
+            // 绘制所有已保存的路径
             for (path in paths) {
                 canvas.drawPath(path, drawPaint)
             }
 
-            // Draw current path
+            // 绘制当前路径
             currentPath?.let {
                 canvas.drawPath(it, drawPaint)
             }
@@ -312,12 +312,12 @@ class DrawingImageView @JvmOverloads constructor(
             val result = Bitmap.createBitmap(original.width, original.height, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(result)
 
-            // Draw original image
+            // 绘制原始图片
             canvas.drawBitmap(original, 0f, 0f, null)
 
-            // Draw all paths with proper stroke width for original image size
+            // 使用适配原始图片尺寸的线宽绘制所有路径
             val savePaint = Paint(drawPaint).apply {
-                // Adjust stroke width for the original image resolution
+                // 根据原始图片分辨率调整线宽
                 strokeWidth = 3f * (original.width.toFloat() / (width / scaleFactor))
             }
 
