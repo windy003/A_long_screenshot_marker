@@ -63,7 +63,6 @@ class DrawingImageView @JvmOverloads constructor(
 
     /**
      * 将当前标注烘焙到图片中，然后清空路径
-     * 这样用户可以滚动到其他位置继续画并再次保存
      */
     fun bakeAnnotationsToImage(): Boolean {
         if (paths.isEmpty()) return false
