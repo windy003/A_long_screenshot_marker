@@ -306,27 +306,4 @@ class DrawingImageView @JvmOverloads constructor(
         invalidate()
     }
 
-    fun getAnnotatedBitmap(): Bitmap? {
-        bitmap?.let { original ->
-            val result = Bitmap.createBitmap(original.width, original.height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(result)
-
-            // 绘制原始图片
-            canvas.drawBitmap(original, 0f, 0f, null)
-
-            // 使用适配原始图片尺寸的线宽绘制所有路径
-            val savePaint = Paint(drawPaint).apply {
-                // 根据原始图片分辨率调整线宽
-                strokeWidth = 3f * (original.width.toFloat() / (width / scaleFactor))
-            }
-
-            for (path in paths) {
-                canvas.drawPath(path, savePaint)
-            }
-
-            return result
-        }
-        return null
-    }
-
 }
