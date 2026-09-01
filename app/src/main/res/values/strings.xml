@@ -18,4 +18,14 @@
     <string name="tap_to_open">点击"打开"按钮选择图片</string>
     <string name="no_image_found">没有找到图片</string>
     <string name="permission_denied">需要授予读取图片权限</string>
+    <string name="save_path">保存路径</string>
+    <string name="save_path_title">设置保存路径</string>
+    <string name="save_path_current">当前保存位置：\n\n%1$s</string>
+    <string name="save_path_default">默认（原图所在目录）</string>
+    <string name="save_path_choose">选择文件夹</string>
+    <string name="save_path_reset">恢复默认</string>
+    <string name="save_path_cancel">取消</string>
+    <string name="save_path_set">保存路径已设置</string>
+    <string name="save_path_reset_done">已恢复默认保存路径</string>
+    <string name="save_path_invalid">保存路径不可用，请重新设置</string>
 </resources>

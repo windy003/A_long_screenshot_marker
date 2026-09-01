@@ -3,6 +3,7 @@ package com.example.imagemarker
 import android.Manifest
 import android.app.Activity
 import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -11,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.view.View
 import android.widget.Button
@@ -18,6 +20,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import java.io.IOException
@@ -30,6 +33,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnUndo: Button
     private lateinit var btnClear: Button
     private lateinit var btnSave: Button
+    private lateinit var btnSavePath: Button
+
+    private val prefs by lazy { getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 
     private var originalImageUri: Uri? = null
     // Android 11+ 的系统删除对话框会触发 onResume，用此标志跳过那次自动加载
@@ -41,6 +47,25 @@ class MainActivity : AppCompatActivity() {
         if (result.resultCode == Activity.RESULT_OK) {
             result.data?.data?.let { uri ->
                 loadImage(uri)
+            }
+        }
+    }
+
+    // 选择保存文件夹（系统文件夹选择界面）
+    private val pickFolderLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+                prefs.edit().putString(KEY_SAVE_PATH, uri.toString()).apply()
+                showToast(R.string.save_path_set)
+            } catch (e: SecurityException) {
+                e.printStackTrace()
+                showToast(R.string.save_path_invalid)
             }
         }
     }
@@ -90,6 +115,7 @@ class MainActivity : AppCompatActivity() {
         btnUndo = findViewById(R.id.btnUndo)
         btnClear = findViewById(R.id.btnClear)
         btnSave = findViewById(R.id.btnSave)
+        btnSavePath = findViewById(R.id.btnSavePath)
     }
 
     private fun setupListeners() {
@@ -121,6 +147,71 @@ class MainActivity : AppCompatActivity() {
         btnSave.setOnClickListener {
             saveImage()
         }
+
+        btnSavePath.setOnClickListener {
+            showSavePathDialog()
+        }
+    }
+
+    // ---------------- 保存路径设置 ----------------
+
+    private fun showSavePathDialog() {
+        val current = getSaveFolderUri()
+        val desc = if (current == null) getString(R.string.save_path_default) else describeTreeUri(current)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.save_path_title)
+            .setMessage(getString(R.string.save_path_current, desc))
+            .setPositiveButton(R.string.save_path_choose) { _, _ ->
+                pickFolderLauncher.launch(current)
+            }
+            .setNeutralButton(R.string.save_path_reset) { _, _ ->
+                clearSaveFolder()
+                showToast(R.string.save_path_reset_done)
+            }
+            .setNegativeButton(R.string.save_path_cancel, null)
+            .show()
+    }
+
+    // 读取已保存的文件夹，若授权已失效则清除并返回 null（回退到默认目录）
+    private fun getSaveFolderUri(): Uri? {
+        val saved = prefs.getString(KEY_SAVE_PATH, null) ?: return null
+        val uri = Uri.parse(saved)
+        val granted = contentResolver.persistedUriPermissions.any {
+            it.uri == uri && it.isWritePermission
+        }
+        if (!granted) {
+            prefs.edit().remove(KEY_SAVE_PATH).apply()
+            return null
+        }
+        return uri
+    }
+
+    private fun clearSaveFolder() {
+        val saved = prefs.getString(KEY_SAVE_PATH, null)
+        if (saved != null) {
+            try {
+                contentResolver.releasePersistableUriPermission(
+                    Uri.parse(saved),
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (e: SecurityException) {
+                e.printStackTrace()
+            }
+        }
+        prefs.edit().remove(KEY_SAVE_PATH).apply()
+    }
+
+    // 把 tree Uri 转换成便于阅读的路径文字
+    private fun describeTreeUri(uri: Uri): String {
+        val docId = try {
+            DocumentsContract.getTreeDocumentId(uri)
+        } catch (e: Exception) {
+            null
+        } ?: return uri.toString()
+        val parts = docId.split(":")
+        val root = if (parts[0] == "primary") "内部存储" else parts[0]
+        val path = if (parts.size > 1) parts[1] else ""
+        return if (path.isEmpty()) root else root + "/" + path
     }
 
     private fun checkPermissionAndLoadImage() {
@@ -209,7 +300,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 保存新图片，获取新图片的 URI
-        val newUri = saveBitmapToGallery(bitmap)
+        val filename = "IMG_ANNOTATED_${System.currentTimeMillis()}.png"
+        val folderUri = getSaveFolderUri()
+        val newUri = if (folderUri != null) {
+            saveBitmapToFolder(folderUri, bitmap, filename)
+        } else {
+            saveBitmapToGallery(bitmap, filename)
+        }
         if (newUri != null) {
             showToast(R.string.save_success)
             // 请求删除原图片
@@ -266,9 +363,41 @@ class MainActivity : AppCompatActivity() {
         return null
     }
 
-    private fun saveBitmapToGallery(bitmap: Bitmap): Uri? {
-        val filename = "IMG_ANNOTATED_${System.currentTimeMillis()}.png"
+    // 保存到用户指定的文件夹
+    private fun saveBitmapToFolder(treeUri: Uri, bitmap: Bitmap, filename: String): Uri? {
+        return try {
+            val parentDocUri = DocumentsContract.buildDocumentUriUsingTree(
+                treeUri,
+                DocumentsContract.getTreeDocumentId(treeUri)
+            )
+            val newFileUri = DocumentsContract.createDocument(
+                contentResolver,
+                parentDocUri,
+                "image/png",
+                filename
+            ) ?: return null
 
+            val written = contentResolver.openOutputStream(newFileUri)?.use { outputStream ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+            } ?: false
+
+            if (written) {
+                newFileUri
+            } else {
+                try {
+                    DocumentsContract.deleteDocument(contentResolver, newFileUri)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                null
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    private fun saveBitmapToGallery(bitmap: Bitmap, filename: String): Uri? {
         // 获取原图片的目录路径，如果获取不到则使用默认的 Pictures 目录
         val relativePath = getOriginalImageRelativePath() ?: Environment.DIRECTORY_PICTURES
 
@@ -306,5 +435,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun showToast(resId: Int) {
         Toast.makeText(this, resId, Toast.LENGTH_SHORT).show()
+    }
+
+    companion object {
+        private const val PREFS_NAME = "image_marker_prefs"
+        private const val KEY_SAVE_PATH = "save_path_uri"
     }
 }
