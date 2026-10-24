@@ -30,6 +30,26 @@
                 android:textColor="@color/white" />
 
             <Button
+                android:id="@+id/btnSave"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:paddingHorizontal="12dp"
+                android:text="@string/save_image"
+                android:textColor="@color/white" />
+
+            <Button
+                android:id="@+id/btnLine"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:paddingHorizontal="12dp"
+                android:text="@string/two_point_line"
+                android:textColor="@color/white" />
+
+            <Button
                 android:id="@+id/btnUndo"
                 style="@style/Widget.Material3.Button.TextButton"
                 android:layout_width="wrap_content"
@@ -59,23 +79,14 @@
                 android:text="@string/save_path"
                 android:textColor="@color/white" />
 
-            <Button
-                android:id="@+id/btnSave"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:minWidth="0dp"
-                android:paddingHorizontal="12dp"
-                android:text="@string/save_image"
-                android:textColor="@color/white" />
-
         </LinearLayout>
 
     </HorizontalScrollView>
 
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="0dp"
+        android:layout_weight="1">
 
         <com.example.imagemarker.DrawingImageView
             android:id="@+id/drawingView"
@@ -92,5 +103,19 @@
             android:textSize="16sp" />
 
     </FrameLayout>
+
+    <TextView
+        android:id="@+id/tvSavePathBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/primary_dark"
+        android:ellipsize="middle"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:singleLine="true"
+        android:textColor="@color/white"
+        android:textSize="12sp" />
 
 </LinearLayout>

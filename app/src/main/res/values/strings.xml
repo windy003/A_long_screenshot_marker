@@ -7,6 +7,10 @@
     <string name="undo">撤销</string>
     <string name="draw_mode">画线</string>
     <string name="view_mode">移动</string>
+    <string name="two_point_line">两点画线</string>
+    <string name="free_draw">自由画线</string>
+    <string name="line_mode_on">两点画线：依次点击两个点</string>
+    <string name="line_mode_off">已切换为自由画线</string>
     <string name="no_image_loaded">请先打开一张图片</string>
     <string name="no_annotations">没有标注可保存</string>
     <string name="save_success">已保存，可继续标注</string>
@@ -20,7 +24,12 @@
     <string name="permission_denied">需要授予读取图片权限</string>
     <string name="save_path">保存路径</string>
     <string name="save_path_title">设置保存路径</string>
-    <string name="save_path_current">当前保存位置：\n\n%1$s</string>
+    <string name="save_path_current">当前保存位置：%1$s</string>
+    <string name="save_path_recent_title">最近使用（点击可直接切换）</string>
+    <string name="save_path_current_item">%1$s（当前）</string>
+    <string name="save_path_no_recent">还没有历史记录，选择新的文件夹后会记录在这里</string>
+    <string name="save_path_bar">保存到：%1$s</string>
+    <string name="save_path_bar_default">保存到：默认（原图所在目录）</string>
     <string name="save_path_default">默认（原图所在目录）</string>
     <string name="save_path_choose">选择文件夹</string>
     <string name="save_path_reset">恢复默认</string>

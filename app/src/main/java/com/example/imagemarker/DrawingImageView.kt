@@ -20,12 +20,26 @@ class DrawingImageView @JvmOverloads constructor(
     private val paths = mutableListOf<Path>()
     private var currentPath: Path? = null
 
+    // 画线模式：自由画线 / 两点画线
+    private var drawMode = DrawMode.FREE
+    // 两点画线模式下已选中的起点（图片坐标）
+    private var lineStartPoint: PointF? = null
+    // 两点画线模式下跟随手指的预览终点（图片坐标）
+    private var linePreviewPoint: PointF? = null
+
     private val drawPaint = Paint().apply {
         color = Color.RED
         style = Paint.Style.STROKE
         strokeWidth = 3f
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
+        isAntiAlias = true
+    }
+
+    // 两点画线的起点标记画笔
+    private val pointPaint = Paint().apply {
+        color = Color.RED
+        style = Paint.Style.FILL
         isAntiAlias = true
     }
 
@@ -47,14 +61,35 @@ class DrawingImageView @JvmOverloads constructor(
     private var translateY = 0f
 
     private enum class TouchMode {
-        NONE, DRAG, DRAW
+        NONE, DRAG, DRAW, LINE
+    }
+
+    enum class DrawMode {
+        FREE, LINE
     }
 
     fun setImage(bmp: Bitmap) {
         bitmap = bmp
         paths.clear()
+        resetLineState()
         resetTransform()
         invalidate()
+    }
+
+    fun setDrawMode(mode: DrawMode) {
+        if (drawMode == mode) return
+        drawMode = mode
+        currentPath = null
+        resetLineState()
+        touchMode = TouchMode.NONE
+        invalidate()
+    }
+
+    fun getDrawMode(): DrawMode = drawMode
+
+    private fun resetLineState() {
+        lineStartPoint = null
+        linePreviewPoint = null
     }
 
     fun hasImage(): Boolean = bitmap != null
@@ -155,6 +190,15 @@ class DrawingImageView @JvmOverloads constructor(
                 canvas.drawPath(it, drawPaint)
             }
 
+            // 两点画线：起点标记与预览线
+            lineStartPoint?.let { start ->
+                val pointRadius = 3f * resources.displayMetrics.density / scaleFactor
+                canvas.drawCircle(start.x, start.y, pointRadius, pointPaint)
+                linePreviewPoint?.let { end ->
+                    canvas.drawLine(start.x, start.y, end.x, end.y, drawPaint)
+                }
+            }
+
             canvas.restore()
         }
     }
@@ -166,27 +210,43 @@ class DrawingImageView @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 lastTouchX = event.x
                 lastTouchY = event.y
-                // 单指：开始画线
-                touchMode = TouchMode.DRAW
-                startDrawing(event.x, event.y)
+                if (drawMode == DrawMode.LINE) {
+                    // 两点画线：记录按下位置，已有起点时显示预览线
+                    touchMode = TouchMode.LINE
+                    if (lineStartPoint != null) {
+                        val point = screenToImageCoords(event.x, event.y)
+                        linePreviewPoint = PointF(point[0], point[1])
+                        invalidate()
+                    }
+                } else {
+                    // 单指：开始画线
+                    touchMode = TouchMode.DRAW
+                    startDrawing(event.x, event.y)
+                }
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
                 // 第二根手指按下：取消画线，切换到移动模式
                 if (touchMode == TouchMode.DRAW) {
                     currentPath = null
-                    invalidate()
                 }
+                linePreviewPoint = null
                 touchMode = TouchMode.DRAG
                 // 记录两指中点
                 lastTouchX = (event.getX(0) + event.getX(1)) / 2f
                 lastTouchY = (event.getY(0) + event.getY(1)) / 2f
+                invalidate()
             }
 
             MotionEvent.ACTION_MOVE -> {
                 if (touchMode == TouchMode.DRAW && event.pointerCount == 1) {
                     // 单指移动：画线
                     continueDrawing(event.x, event.y)
+                } else if (touchMode == TouchMode.LINE && event.pointerCount == 1 && linePreviewPoint != null) {
+                    // 两点画线：预览终点跟随手指
+                    val point = screenToImageCoords(event.x, event.y)
+                    linePreviewPoint = PointF(point[0], point[1])
+                    invalidate()
                 } else if (touchMode == TouchMode.DRAG && event.pointerCount >= 2) {
                     // 双指移动：移动图片
                     val centerX = (event.getX(0) + event.getX(1)) / 2f
@@ -206,11 +266,22 @@ class DrawingImageView @JvmOverloads constructor(
                 }
             }
 
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (touchMode == TouchMode.DRAW) {
-                    finishDrawing()
+            MotionEvent.ACTION_UP -> {
+                when (touchMode) {
+                    TouchMode.DRAW -> finishDrawing()
+                    TouchMode.LINE -> handleLineTap(event.x, event.y)
+                    else -> {}
                 }
                 touchMode = TouchMode.NONE
+            }
+
+            MotionEvent.ACTION_CANCEL -> {
+                if (touchMode == TouchMode.DRAW) {
+                    currentPath = null
+                }
+                linePreviewPoint = null
+                touchMode = TouchMode.NONE
+                invalidate()
             }
 
             MotionEvent.ACTION_POINTER_UP -> {
@@ -239,6 +310,40 @@ class DrawingImageView @JvmOverloads constructor(
             path.lineTo(imagePoint[0], imagePoint[1])
             invalidate()
         }
+    }
+
+    /**
+     * 两点画线：第一次点击记录起点，第二次点击连成直线
+     */
+    private fun handleLineTap(x: Float, y: Float) {
+        linePreviewPoint = null
+        val bmp = bitmap ?: return
+
+        val point = screenToImageCoords(x, y)
+        // 只接受落在图片范围内的点
+        if (point[0] < 0f || point[1] < 0f ||
+            point[0] > bmp.width.toFloat() || point[1] > bmp.height.toFloat()
+        ) {
+            invalidate()
+            return
+        }
+
+        val start = lineStartPoint
+        if (start == null) {
+            lineStartPoint = PointF(point[0], point[1])
+        } else {
+            val dx = point[0] - start.x
+            val dy = point[1] - start.y
+            // 忽略两次点击几乎重合的情况
+            if (dx * dx + dy * dy >= 1f) {
+                paths.add(Path().apply {
+                    moveTo(start.x, start.y)
+                    lineTo(point[0], point[1])
+                })
+            }
+            lineStartPoint = null
+        }
+        invalidate()
     }
 
     private fun finishDrawing() {
@@ -286,6 +391,12 @@ class DrawingImageView @JvmOverloads constructor(
     }
 
     fun undo(): Boolean {
+        // 两点画线模式下，先取消已选中的起点
+        if (lineStartPoint != null) {
+            resetLineState()
+            invalidate()
+            return true
+        }
         if (paths.isNotEmpty()) {
             paths.removeAt(paths.size - 1)
             invalidate()
@@ -296,6 +407,7 @@ class DrawingImageView @JvmOverloads constructor(
 
     fun clearAll() {
         paths.clear()
+        resetLineState()
         invalidate()
     }
 
@@ -303,6 +415,7 @@ class DrawingImageView @JvmOverloads constructor(
         bitmap = null
         paths.clear()
         currentPath = null
+        resetLineState()
         invalidate()
     }
 

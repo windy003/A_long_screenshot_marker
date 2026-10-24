@@ -16,6 +16,7 @@ import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.view.View
 import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.IntentSenderRequest
@@ -23,13 +24,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import org.json.JSONArray
 import java.io.IOException
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var drawingView: DrawingImageView
     private lateinit var tvHint: TextView
+    private lateinit var tvSavePathBar: TextView
     private lateinit var btnOpen: Button
+    private lateinit var btnLine: Button
     private lateinit var btnUndo: Button
     private lateinit var btnClear: Button
     private lateinit var btnSave: Button
@@ -61,7 +65,7 @@ class MainActivity : AppCompatActivity() {
                     uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
-                prefs.edit().putString(KEY_SAVE_PATH, uri.toString()).apply()
+                setSaveFolder(uri)
                 showToast(R.string.save_path_set)
             } catch (e: SecurityException) {
                 e.printStackTrace()
@@ -94,10 +98,13 @@ class MainActivity : AppCompatActivity() {
 
         initViews()
         setupListeners()
+        updateSavePathBar()
     }
 
     override fun onResume() {
         super.onResume()
+        // 授权可能在应用外被撤销，回到前台时同步一次底部保存路径
+        updateSavePathBar()
         if (skipNextAutoLoad) {
             skipNextAutoLoad = false
             return
@@ -111,7 +118,9 @@ class MainActivity : AppCompatActivity() {
     private fun initViews() {
         drawingView = findViewById(R.id.drawingView)
         tvHint = findViewById(R.id.tvHint)
+        tvSavePathBar = findViewById(R.id.tvSavePathBar)
         btnOpen = findViewById(R.id.btnOpen)
+        btnLine = findViewById(R.id.btnLine)
         btnUndo = findViewById(R.id.btnUndo)
         btnClear = findViewById(R.id.btnClear)
         btnSave = findViewById(R.id.btnSave)
@@ -121,6 +130,21 @@ class MainActivity : AppCompatActivity() {
     private fun setupListeners() {
         btnOpen.setOnClickListener {
             checkPermissionAndLoadImage()
+        }
+
+        btnLine.setOnClickListener {
+            if (!drawingView.hasImage()) {
+                showToast(R.string.no_image_loaded)
+                return@setOnClickListener
+            }
+            val enterLineMode = drawingView.getDrawMode() != DrawingImageView.DrawMode.LINE
+            drawingView.setDrawMode(
+                if (enterLineMode) DrawingImageView.DrawMode.LINE
+                else DrawingImageView.DrawMode.FREE
+            )
+            // 按钮文字始终表示"点击后切换到的模式"
+            btnLine.setText(if (enterLineMode) R.string.free_draw else R.string.two_point_line)
+            showToast(if (enterLineMode) R.string.line_mode_on else R.string.line_mode_off)
         }
 
         btnUndo.setOnClickListener {
@@ -157,10 +181,47 @@ class MainActivity : AppCompatActivity() {
 
     private fun showSavePathDialog() {
         val current = getSaveFolderUri()
+        val recents = getValidRecentFolders()
         val desc = if (current == null) getString(R.string.save_path_default) else describeTreeUri(current)
-        AlertDialog.Builder(this)
+
+        // 使用自定义布局，保证"最近使用"列表在任何情况下都可见、可滚动
+        val content = layoutInflater.inflate(R.layout.dialog_save_path, null)
+        val tvCurrent = content.findViewById<TextView>(R.id.tvSavePathCurrent)
+        val tvRecentTitle = content.findViewById<TextView>(R.id.tvRecentTitle)
+        val tvNoRecent = content.findViewById<TextView>(R.id.tvNoRecent)
+        val container = content.findViewById<LinearLayout>(R.id.layoutRecentFolders)
+
+        tvCurrent.text = getString(R.string.save_path_current, desc)
+
+        lateinit var dialog: AlertDialog
+
+        if (recents.isEmpty()) {
+            tvRecentTitle.visibility = View.GONE
+            tvNoRecent.visibility = View.VISIBLE
+        } else {
+            // 最近使用的文件夹按最近使用顺序排列，点击即切换
+            recents.forEach { uri ->
+                val name = describeTreeUri(uri)
+                val item = layoutInflater.inflate(
+                    R.layout.item_save_folder, container, false
+                ) as TextView
+                item.text = if (uri == current) {
+                    getString(R.string.save_path_current_item, name)
+                } else {
+                    name
+                }
+                item.setOnClickListener {
+                    setSaveFolder(uri)
+                    showToast(R.string.save_path_set)
+                    dialog.dismiss()
+                }
+                container.addView(item)
+            }
+        }
+
+        dialog = AlertDialog.Builder(this)
             .setTitle(R.string.save_path_title)
-            .setMessage(getString(R.string.save_path_current, desc))
+            .setView(content)
             .setPositiveButton(R.string.save_path_choose) { _, _ ->
                 pickFolderLauncher.launch(current)
             }
@@ -169,36 +230,118 @@ class MainActivity : AppCompatActivity() {
                 showToast(R.string.save_path_reset_done)
             }
             .setNegativeButton(R.string.save_path_cancel, null)
-            .show()
+            .create()
+        dialog.show()
     }
 
-    // 读取已保存的文件夹，若授权已失效则清除并返回 null（回退到默认目录）
+    // 读取当前使用的保存文件夹，若授权已失效则清除并返回 null（回退到默认目录）
     private fun getSaveFolderUri(): Uri? {
         val saved = prefs.getString(KEY_SAVE_PATH, null) ?: return null
         val uri = Uri.parse(saved)
-        val granted = contentResolver.persistedUriPermissions.any {
-            it.uri == uri && it.isWritePermission
-        }
-        if (!granted) {
+        if (!hasWritePermission(uri)) {
             prefs.edit().remove(KEY_SAVE_PATH).apply()
+            removeRecentFolder(uri)
             return null
         }
         return uri
     }
 
+    // 切换当前保存文件夹，并把这个文件夹放到最近使用列表的最前面
+    private fun setSaveFolder(uri: Uri) {
+        prefs.edit().putString(KEY_SAVE_PATH, uri.toString()).apply()
+        addRecentFolder(uri)
+        updateSavePathBar()
+    }
+
+    // 底部常驻横条：显示当前保存路径
+    private fun updateSavePathBar() {
+        val uri = getSaveFolderUri()
+        tvSavePathBar.text = if (uri == null) {
+            getString(R.string.save_path_bar_default)
+        } else {
+            getString(R.string.save_path_bar, describeTreeUri(uri))
+        }
+    }
+
+    private fun hasWritePermission(uri: Uri): Boolean =
+        contentResolver.persistedUriPermissions.any {
+            it.uri == uri && it.isWritePermission
+        }
+
+    // 最近使用过的文件夹（最多 3 个，最近使用的排在前面）
+    private fun getRecentFolders(): List<Uri> {
+        val saved = prefs.getString(KEY_RECENT_PATHS, null) ?: return emptyList()
+        return try {
+            val array = JSONArray(saved)
+            (0 until array.length()).map { Uri.parse(array.getString(it)) }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    // 只返回授权仍然有效的文件夹，并顺带清理已失效的记录
+    private fun getValidRecentFolders(): List<Uri> {
+        val stored = getRecentFolders()
+        val valid = stored.filter { hasWritePermission(it) }.toMutableList()
+
+        // 当前保存路径始终包含在列表中（兼容旧版本只记录了一个路径的情况）
+        val current = prefs.getString(KEY_SAVE_PATH, null)?.let { Uri.parse(it) }
+        if (current != null && hasWritePermission(current) && valid.none { it == current }) {
+            valid.add(0, current)
+        }
+
+        // 兼容旧版本：系统中仍有持久化授权的文件夹也补进列表，
+        // 这样升级前用过的保存路径也能出现在"最近使用"里
+        contentResolver.persistedUriPermissions
+            .filter { it.isWritePermission }
+            .map { it.uri }
+            .forEach { uri ->
+                if (valid.size < MAX_RECENT_FOLDERS && valid.none { it == uri }) {
+                    valid.add(uri)
+                }
+            }
+
+        val result = valid.take(MAX_RECENT_FOLDERS)
+        if (result != stored) {
+            storeRecentFolders(result)
+        }
+        return result
+    }
+
+    private fun addRecentFolder(uri: Uri) {
+        val list = getRecentFolders().filter { it != uri }.toMutableList()
+        list.add(0, uri)
+        storeRecentFolders(list.take(MAX_RECENT_FOLDERS))
+    }
+
+    private fun removeRecentFolder(uri: Uri) {
+        val list = getRecentFolders().filter { it != uri }
+        storeRecentFolders(list)
+    }
+
+    private fun storeRecentFolders(uris: List<Uri>) {
+        val array = JSONArray()
+        uris.forEach { array.put(it.toString()) }
+        prefs.edit().putString(KEY_RECENT_PATHS, array.toString()).apply()
+    }
+
     private fun clearSaveFolder() {
-        val saved = prefs.getString(KEY_SAVE_PATH, null)
-        if (saved != null) {
+        // 释放当前及历史保存路径的持久化授权
+        val uris = (getRecentFolders() + listOfNotNull(
+            prefs.getString(KEY_SAVE_PATH, null)?.let { Uri.parse(it) }
+        )).distinct()
+        uris.forEach { uri ->
             try {
                 contentResolver.releasePersistableUriPermission(
-                    Uri.parse(saved),
+                    uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
             } catch (e: SecurityException) {
                 e.printStackTrace()
             }
         }
-        prefs.edit().remove(KEY_SAVE_PATH).apply()
+        prefs.edit().remove(KEY_SAVE_PATH).remove(KEY_RECENT_PATHS).apply()
+        updateSavePathBar()
     }
 
     // 把 tree Uri 转换成便于阅读的路径文字
@@ -440,5 +583,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val PREFS_NAME = "image_marker_prefs"
         private const val KEY_SAVE_PATH = "save_path_uri"
+        private const val KEY_RECENT_PATHS = "recent_save_paths"
+        private const val MAX_RECENT_FOLDERS = 3
     }
 }
