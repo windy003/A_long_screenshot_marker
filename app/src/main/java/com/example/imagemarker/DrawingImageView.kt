@@ -20,8 +20,8 @@ class DrawingImageView @JvmOverloads constructor(
     private val paths = mutableListOf<Path>()
     private var currentPath: Path? = null
 
-    // 画线模式：自由画线 / 两点画线
-    private var drawMode = DrawMode.FREE
+    // 画线模式：自由画线 / 两点画线（默认两点画线）
+    private var drawMode = DrawMode.LINE
     // 两点画线模式下已选中的起点（图片坐标）
     private var lineStartPoint: PointF? = null
     // 两点画线模式下跟随手指的预览终点（图片坐标）
